@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Color Flood — LaunchTower</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b23; --panel2:#1d2430; --line:#2a3342;
+    --text:#e8edf4; --dim:#8b96a8; --accent:#5eead4; --danger:#f87171;
+  }
+  *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:'Courier New', ui-monospace, Menlo, Consolas, monospace;
+    display:flex; flex-direction:column; align-items:center;
+    min-height:100vh; padding:14px 10px 8px;
+    image-rendering:pixelated;
+  }
+  header{ text-align:center; margin-bottom:10px; user-select:none;}
+  h1{
+    font-size:clamp(20px,5vw,30px); letter-spacing:4px; font-weight:700;
+    color:var(--accent); text-shadow:0 0 12px rgba(94,234,212,.35);
+  }
+  .sub{ color:var(--dim); font-size:12px; letter-spacing:2px; margin-top:4px;}
+  .hud{
+    display:flex; gap:10px; align-items:center; justify-content:center;
+    flex-wrap:wrap; margin-bottom:12px; user-select:none;
+  }
+  .stat{
+    background:var(--panel); border:2px solid var(--line);
+    padding:6px 12px; min-width:86px; text-align:center;
+  }
+  .stat .label{ font-size:10px; color:var(--dim); letter-spacing:2px;}
+  .stat .value{ font-size:18px; font-weight:700; margin-top:2px;}
+  .stat .value.warn{ color:var(--danger);}
+  .stat .value.good{ color:var(--accent);}
+  .sizes{ display:flex; gap:6px;}
+  .sizebtn{
+    background:var(--panel); border:2px solid var(--line); color:var(--dim);
+    font-family:inherit; font-size:12px; font-weight:700; letter-spacing:1px;
+    padding:8px 12px; cursor:pointer;
+  }
+  .sizebtn.active{ background:var(--panel2); color:var(--accent); border-color:var(--accent);}
+  .sizebtn:hover{ color:var(--text);}
+  .boardwrap{
+    position:relative; background:var(--panel); border:2px solid var(--line);
+    padding:10px; margin-bottom:12px;
+  }
+  canvas{ display:block; image-rendering:pixelated; background:#0a0d12;}
+  .overlay{
+    position:absolute; inset:10px; display:none; flex-direction:column;
+    align-items:center; justify-content:center; gap:10px;
+    background:rgba(10,13,18,.88); text-align:center; padding:16px;
+  }
+  .overlay.show{ display:flex;}
+  .overlay .big{ font-size:26px; font-weight:700; letter-spacing:3px;}
+  .overlay .big.win{ color:var(--accent); text-shadow:0 0 14px rgba(94,234,212,.6);}
+  .overlay .big.lose{ color:var(--danger); text-shadow:0 0 14px rgba(248,113,113,.5);}
+  .overlay .info{ color:var(--dim); font-size:13px; line-height:1.6;}
+  .overlay .info b{ color:var(--text);}
+  .newbest{ color:var(--accent); font-size:13px; letter-spacing:2px; font-weight:700;}
+  .colors{
+    display:flex; gap:10px; justify-content:center; margin-bottom:14px;
+    flex-wrap:wrap; user-select:none;
+  }
+  .swatch{
+    width:46px; height:46px; border:3px solid var(--line); cursor:pointer;
+    position:relative; transition:transform .06s;
+  }
+  .swatch:hover{ transform:translateY(-2px);}
+  .swatch:active{ transform:translateY(1px);}
+  .swatch .key{
+    position:absolute; bottom:2px; right:4px; font-size:10px; font-weight:700;
+    color:rgba(0,0,0,.55);
+  }
+  .swatch.sel{ border-color:#fff; box-shadow:0 0 10px rgba(255,255,255,.4);}
+  .controls{ display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; justify-content:center;}
+  .btn{
+    background:var(--panel); border:2px solid var(--line); color:var(--text);
+    font-family:inherit; font-size:13px; font-weight:700; letter-spacing:1px;
+    padding:10px 16px; cursor:pointer;
+  }
+  .btn:hover{ border-color:var(--accent); color:var(--accent);}
+  .btn.primary{ border-color:var(--accent); color:var(--accent);}
+  footer{
+    margin-top:auto; padding-top:10px; font-size:11px; color:var(--dim);
+    letter-spacing:1px; text-align:center;
+  }
+  footer a{ color:var(--accent); text-decoration:none;}
+  footer a:hover{ text-decoration:underline;}
+  .hint{ color:var(--dim); font-size:11px; letter-spacing:1px; margin-bottom:10px; text-align:center; user-select:none;}
+  @media (max-width:420px){
+    .swatch{ width:40px; height:40px;}
+    .stat{ min-width:74px; padding:5px 8px;}
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>COLOR FLOOD</h1>
+    <div class="sub">FLOOD THE BOARD FROM THE TOP-LEFT</div>
+  </header>
+
+  <div class="hud">
+    <div class="stat"><div class="label">MOVES</div><div class="value" id="moves">0</div></div>
+    <div class="stat"><div class="label">LIMIT</div><div class="value" id="limit">–</div></div>
+    <div class="stat"><div class="label">BEST</div><div class="value good" id="best">–</div></div>
+    <div class="sizes">
+      <button class="sizebtn" data-size="8">8×8</button>
+      <button class="sizebtn active" data-size="12">12×12</button>
+      <button class="sizebtn" data-size="16">16×16</button>
+    </div>
+  </div>
+
+  <div class="boardwrap">
+    <canvas id="board"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="big" id="ovTitle"></div>
+      <div class="info" id="ovInfo"></div>
+      <div class="newbest" id="ovBest" style="display:none">★ NEW BEST ★</div>
+      <button class="btn primary" id="ovBtn">PLAY AGAIN</button>
+    </div>
+  </div>
+
+  <div class="hint">TAP A COLOR (OR KEYS 1–6) TO FLOOD · WIN WITHIN THE LIMIT</div>
+
+  <div class="colors" id="colors"></div>
+
+  <div class="controls">
+    <button class="btn primary" id="newBtn">NEW BOARD</button>
+    <button class="btn" id="undoBtn">UNDO</button>
+  </div>
+
+  <footer>
+    LAUNCHTOWER · <a href="https://pennypenguinapp-beep.github.io/" target="_blank" rel="noopener">MORE PIXEL TOOLS &amp; GAMES →</a>
+  </footer>
+
+<script>
+(function(){
+  "use strict";
+
+  var COLORS = [
+    {hex:"#5eead4", name:"teal"},
+    {hex:"#f472b6", name:"pink"},
+    {hex:"#facc15", name:"yellow"},
+    {hex:"#60a5fa", name:"blue"},
+    {hex:"#a78bfa", name:"violet"},
+    {hex:"#fb923c", name:"orange"}
+  ];
+  var N_COLORS = COLORS.length;
+  var SIZES = [8, 12, 16];
+  var LIMITS = {8:14, 12:22, 16:32};
+  var BEST_KEY = "launchtower_colorflood_best_v1";
+
+  var canvas = document.getElementById("board");
+  var ctx = canvas.getContext("2d");
+  var movesEl = document.getElementById("moves");
+  var limitEl = document.getElementById("limit");
+  var bestEl = document.getElementById("best");
+  var overlay = document.getElementById("overlay");
+  var ovTitle = document.getElementById("ovTitle");
+  var ovInfo = document.getElementById("ovInfo");
+  var ovBest = document.getElementById("ovBest");
+  var ovBtn = document.getElementById("ovBtn");
+  var colorsEl = document.getElementById("colors");
+  var newBtn = document.getElementById("newBtn");
+  var undoBtn = document.getElementById("undoBtn");
+  var sizeBtns = Array.prototype.slice.call(document.querySelectorAll(".sizebtn"));
+
+  var size = 12;
+  var limit = LIMITS[size];
+  var grid = [];
+  var moves = 0;
+  var history = [];
+  var over = false;
+  var cell = 24;
+
+  function loadBest(){
+    try{
+      var raw = localStorage.getItem(BEST_KEY);
+      if(raw){ return JSON.parse(raw); }
+    }catch(e){}
+    return {};
+  }
+  function saveBest(obj){
+    try{ localStorage.setItem(BEST_KEY, JSON.stringify(obj)); }catch(e){}
+  }
+
+  function bestFor(s){
+    var b = loadBest();
+    return b[s] || null;
+  }
+
+  function newBoard(){
+    grid = [];
+    for(var y=0;y<size;y++){
+      var row = [];
+      for(var x=0;x<size;x++){
+        row.push(Math.floor(Math.random()*N_COLORS));
+      }
+      grid.push(row);
+    }
+    moves = 0;
+    history = [];
+    over = false;
+    limit = LIMITS[size];
+    overlay.classList.remove("show");
+    updateHud();
+    draw();
+  }
+
+  function updateHud(){
+    movesEl.textContent = moves;
+    limitEl.textContent = limit;
+    var b = bestFor(size);
+    bestEl.textContent = b ? b : "–";
+    movesEl.className = "value" + (moves >= limit ? " warn" : "");
+  }
+
+  function flood(colorIdx){
+    if(over) return;
+    if(moves >= limit) return;
+    var start = grid[0][0];
+    if(start === colorIdx) return;
+    history.push({color:start});
+    var stack = [[0,0]];
+    var seen = {};
+    while(stack.length){
+      var p = stack.pop();
+      var y = p[0], x = p[1];
+      var key = y + "," + x;
+      if(seen[key]) continue;
+      if(y<0||y>=size||x<0||x>=size) continue;
+      if(grid[y][x] !== start) continue;
+      seen[key] = true;
+      grid[y][x] = colorIdx;
+      stack.push([y+1,x],[y-1,x],[y,x+1],[y,x-1]);
+    }
+    moves++;
+    updateHud();
+    draw();
+    checkEnd();
+  }
+
+  function checkEnd(){
+    var filled = true;
+    var first = grid[0][0];
+    for(var y=0;y<size && filled;y++){
+      for(var x=0;x<size && filled;x++){
+        if(grid[y][x] !== first) filled = false;
+      }
+    }
+    if(filled){
+      over = true;
+      var prev = bestFor(size);
+      var isBest = (prev === null || moves < prev);
+      if(isBest){
+        var b = loadBest();
+        b[size] = moves;
+        saveBest(b);
+      }
+      showOverlay("FLOODED!", "You filled the board in <b>" + moves + "</b> moves (limit " + limit + ").", isBest);
+    } else if(moves >= limit){
+      over = true;
+      showOverlay("OUT OF MOVES", "You ran out of moves with the board still unfilled. Best for this size: <b>" + (bestFor(size) || "–") + "</b>.", false);
+    }
+  }
+
+  function showOverlay(title, info, isBest){
+    ovTitle.textContent = title;
+    ovTitle.className = "big " + (title === "FLOODED!" ? "win" : "lose");
+    ovInfo.innerHTML = info;
+    ovBest.style.display = isBest ? "block" : "none";
+    overlay.classList.add("show");
+    updateHud();
+  }
+
+  function undo(){
+    if(over) return;
+    if(!history.length) return;
+    var last = history.pop();
+    var start = grid[0][0];
+    var stack = [[0,0]];
+    var seen = {};
+    while(stack.length){
+      var p = stack.pop();
+      var y = p[0], x = p[1];
+      var key = y + "," + x;
+      if(seen[key]) continue;
+      if(y<0||y>=size||x<0||x>=size) continue;
+      if(grid[y][x] !== start) continue;
+      seen[key] = true;
+      grid[y][x] = last.color;
+      stack.push([y+1,x],[y-1,x],[y,x+1],[y,x-1]);
+    }
+    moves--;
+    updateHud();
+    draw();
+  }
+
+  function draw(){
+    var W = size * cell;
+    canvas.width = W;
+    canvas.height = W;
+    ctx.imageSmoothingEnabled = false;
+    for(var y=0;y<size;y++){
+      for(var x=0;x<size;x++){
+        var c = COLORS[grid[y][x]];
+        ctx.fillStyle = c.hex;
+        ctx.fillRect(x*cell, y*cell, cell, cell);
+        // subtle inner pixel shading for a chunky look
+        ctx.fillStyle = "rgba(0,0,0,0.18)";
+        ctx.fillRect(x*cell + cell - 3, y*cell, 3, cell);
+        ctx.fillRect(x*cell, y*cell + cell - 3, cell, 3);
+      }
+    }
+    // grid lines
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx.lineWidth = 1;
+    for(var i=1;i<size;i++){
+      ctx.beginPath();
+      ctx.moveTo(i*cell + 0.5, 0);
+      ctx.lineTo(i*cell + 0.5, W);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, i*cell + 0.5);
+      ctx.lineTo(W, i*cell + 0.5);
+      ctx.stroke();
+    }
+    // top-left origin marker
+    ctx.strokeStyle = "rgba(255,255,255,0.5)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, cell-2, cell-2);
+  }
+
+  function fitCanvas(){
+    var max = Math.min(window.innerWidth - 60, 480);
+    cell = Math.max(14, Math.floor(max / size));
+    draw();
+  }
+
+  function buildSwatches(){
+    colorsEl.innerHTML = "";
+    for(var i=0;i<N_COLORS;i++){
+      (function(i){
+        var d = document.createElement("div");
+        d.className = "swatch";
+        d.style.background = COLORS[i].hex;
+        d.title = "Flood " + COLORS[i].name;
+        d.setAttribute("data-idx", i);
+        var k = document.createElement("span");
+        k.className = "key";
+        k.textContent = (i+1);
+        d.appendChild(k);
+        d.addEventListener("click", function(){ flood(i); });
+        colorsEl.appendChild(d);
+      })(i);
+    }
+  }
+
+  function selectSize(s){
+    size = s;
+    sizeBtns.forEach(function(b){
+      b.classList.toggle("active", parseInt(b.getAttribute("data-size"),10) === s);
+    });
+    newBoard();
+    fitCanvas();
+  }
+
+  sizeBtns.forEach(function(b){
+    b.addEventListener("click", function(){
+      selectSize(parseInt(b.getAttribute("data-size"),10));
+    });
+  });
+
+  newBtn.addEventListener("click", function(){ newBoard(); });
+  undoBtn.addEventListener("click", function(){ undo(); });
+  ovBtn.addEventListener("click", function(){ newBoard(); });
+
+  window.addEventListener("keydown", function(e){
+    var n = parseInt(e.key,10);
+    if(n >= 1 && n <= N_COLORS){
+      flood(n-1);
+    } else if(e.key === "u" || e.key === "U"){
+      undo();
+    } else if(e.key === "n" || e.key === "N"){
+      newBoard();
+    }
+  });
+
+  window.addEventListener("resize", fitCanvas);
+
+  buildSwatches();
+  selectSize(12);
+})();
+</script>
+</body>
+</html>
