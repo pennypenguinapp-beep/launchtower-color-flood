@@ -55,7 +55,16 @@
     background:rgba(10,13,18,.88); text-align:center; padding:16px;
   }
   .overlay.show{ display:flex;}
-  .overlay .big{ font-size:26px; font-weight:700; letter-spacing:3px;}
+  .overlay .big{ font-size:34px; font-weight:700; letter-spacing:3px;}
+  .overlay .howto{ color:var(--text); font-size:14px; line-height:1.6; max-width:340px;}
+  .overlay .keys{ color:var(--dim); font-size:11px; letter-spacing:1px;}
+  .bigbtn{
+    background:var(--panel2); border:3px solid var(--accent); color:var(--accent);
+    font-family:inherit; font-size:18px; font-weight:700; letter-spacing:3px;
+    padding:14px 34px; cursor:pointer; box-shadow:0 0 14px rgba(94,234,212,.25);
+  }
+  .bigbtn:hover{ background:var(--accent); color:#0a0d12;}
+  .bigbtn:active{ transform:translateY(1px);}
   .overlay .big.win{ color:var(--accent); text-shadow:0 0 14px rgba(94,234,212,.6);}
   .overlay .big.lose{ color:var(--danger); text-shadow:0 0 14px rgba(248,113,113,.5);}
   .overlay .info{ color:var(--dim); font-size:13px; line-height:1.6;}
@@ -118,9 +127,10 @@
     <canvas id="board"></canvas>
     <div class="overlay" id="overlay">
       <div class="big" id="ovTitle"></div>
-      <div class="info" id="ovInfo"></div>
+      <div class="howto" id="ovInfo"></div>
+      <div class="keys" id="ovKeys">TAP A COLOR · KEYS 1–6 · U UNDO · N NEW · P PAUSE</div>
       <div class="newbest" id="ovBest" style="display:none">★ NEW BEST ★</div>
-      <button class="btn primary" id="ovBtn">PLAY AGAIN</button>
+      <button class="bigbtn" id="ovBtn">PLAY</button>
     </div>
   </div>
 
@@ -175,7 +185,40 @@
   var moves = 0;
   var history = [];
   var over = false;
+  var paused = false;
+  var started = false;
+  var selColor = 0;
   var cell = 24;
+
+  // ---- WebAudio sound cues (no audio files) ----
+  var audioCtx = null;
+  function ac(){
+    if(!audioCtx){
+      try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){}
+    }
+    if(audioCtx && audioCtx.state === "suspended"){ audioCtx.resume(); }
+    return audioCtx;
+  }
+  function beep(freq, dur, type, vol){
+    var a = ac();
+    if(!a) return;
+    try{
+      var o = a.createOscillator();
+      var g = a.createGain();
+      o.type = type || "square";
+      o.frequency.value = freq;
+      g.gain.value = vol || 0.06;
+      o.connect(g); g.connect(a.destination);
+      var t = a.currentTime;
+      g.gain.setValueAtTime(vol || 0.06, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.start(t); o.stop(t + dur);
+    }catch(e){}
+  }
+  function sfxFlood(){ beep(320 + Math.random()*80, 0.08, "square", 0.05); }
+  function sfxWin(){ beep(523, 0.12, "square", 0.07); setTimeout(function(){ beep(659, 0.12, "square", 0.07); }, 110); setTimeout(function(){ beep(784, 0.2, "square", 0.07); }, 220); }
+  function sfxLose(){ beep(180, 0.25, "sawtooth", 0.06); }
+  function sfxStart(){ beep(440, 0.09, "square", 0.06); setTimeout(function(){ beep(660, 0.12, "square", 0.06); }, 90); }
 
   function loadBest(){
     try{
@@ -205,6 +248,8 @@
     moves = 0;
     history = [];
     over = false;
+    paused = false;
+    started = true;
     limit = LIMITS[size];
     overlay.classList.remove("show");
     updateHud();
@@ -220,7 +265,7 @@
   }
 
   function flood(colorIdx){
-    if(over) return;
+    if(over || paused || !started) return;
     if(moves >= limit) return;
     var start = grid[0][0];
     if(start === colorIdx) return;
@@ -241,6 +286,7 @@
     moves++;
     updateHud();
     draw();
+    sfxFlood();
     checkEnd();
   }
 
@@ -261,10 +307,12 @@
         b[size] = moves;
         saveBest(b);
       }
-      showOverlay("FLOODED!", "You filled the board in <b>" + moves + "</b> moves (limit " + limit + ").", isBest);
+      showOverlay("FLOODED!", "You filled the board in <b>" + moves + "</b> moves (limit " + limit + "). Best: <b>" + (bestFor(size) || "–") + "</b>.", isBest);
+      sfxWin();
     } else if(moves >= limit){
       over = true;
       showOverlay("OUT OF MOVES", "You ran out of moves with the board still unfilled. Best for this size: <b>" + (bestFor(size) || "–") + "</b>.", false);
+      sfxLose();
     }
   }
 
@@ -273,12 +321,13 @@
     ovTitle.className = "big " + (title === "FLOODED!" ? "win" : "lose");
     ovInfo.innerHTML = info;
     ovBest.style.display = isBest ? "block" : "none";
+    ovBtn.textContent = "PLAY AGAIN";
     overlay.classList.add("show");
     updateHud();
   }
 
   function undo(){
-    if(over) return;
+    if(over || paused || !started) return;
     if(!history.length) return;
     var last = history.pop();
     var start = grid[0][0];
@@ -336,8 +385,11 @@
   }
 
   function fitCanvas(){
-    var max = Math.min(window.innerWidth - 60, 480);
-    cell = Math.max(14, Math.floor(max / size));
+    // letterbox: fit the board into the window (900x700 design area), DPR-aware
+    var availW = Math.min(window.innerWidth - 48, 700);
+    var availH = Math.max(200, window.innerHeight - 340);
+    var max = Math.min(availW, availH, 560);
+    cell = Math.max(12, Math.floor(max / size));
     draw();
   }
 
@@ -346,7 +398,7 @@
     for(var i=0;i<N_COLORS;i++){
       (function(i){
         var d = document.createElement("div");
-        d.className = "swatch";
+        d.className = "swatch" + (i === selColor ? " sel" : "");
         d.style.background = COLORS[i].hex;
         d.title = "Flood " + COLORS[i].name;
         d.setAttribute("data-idx", i);
@@ -354,10 +406,14 @@
         k.className = "key";
         k.textContent = (i+1);
         d.appendChild(k);
-        d.addEventListener("click", function(){ flood(i); });
+        d.addEventListener("click", function(){ selColor = i; markSel(); flood(i); });
         colorsEl.appendChild(d);
       })(i);
     }
+  }
+  function markSel(){
+    var sw = colorsEl.children;
+    for(var i=0;i<sw.length;i++){ sw[i].classList.toggle("sel", i === selColor); }
   }
 
   function selectSize(s){
@@ -375,11 +431,44 @@
     });
   });
 
-  newBtn.addEventListener("click", function(){ newBoard(); });
+  newBtn.addEventListener("click", function(){ sfxStart(); newBoard(); });
   undoBtn.addEventListener("click", function(){ undo(); });
-  ovBtn.addEventListener("click", function(){ newBoard(); });
+  ovBtn.addEventListener("click", function(){ sfxStart(); newBoard(); });
+
+  // Pause: P/Esc toggles, auto-pause when tab hidden
+  function setPaused(p){
+    if(over || !started) return;
+    paused = p;
+    if(p){
+      ovTitle.textContent = "PAUSED";
+      ovTitle.className = "big";
+      ovInfo.innerHTML = "Take a breath. Your board is safe.";
+      ovBest.style.display = "none";
+      ovBtn.textContent = "RESUME";
+      overlay.classList.add("show");
+    } else {
+      overlay.classList.remove("show");
+    }
+  }
+  ovBtn.addEventListener("click", function(){
+    if(paused){ setPaused(false); return; }
+    sfxStart();
+    newBoard();
+  });
+
+  document.addEventListener("visibilitychange", function(){
+    if(document.hidden) setPaused(true);
+  });
 
   window.addEventListener("keydown", function(e){
+    if(e.key === "p" || e.key === "P" || e.key === "Escape"){
+      if(started && !over){ setPaused(!paused); }
+      return;
+    }
+    if(e.key === "Enter" || e.key === " "){
+      if(!started){ sfxStart(); newBoard(); e.preventDefault(); return; }
+      if(paused){ setPaused(false); e.preventDefault(); return; }
+    }
     var n = parseInt(e.key,10);
     if(n >= 1 && n <= N_COLORS){
       flood(n-1);
@@ -390,10 +479,54 @@
     }
   });
 
+  // Touch / swipe: swipe up/down/cycle on the board to change the flood color
+  var touchStart = null;
+  canvas.addEventListener("touchstart", function(e){
+    if(e.touches.length === 1){
+      touchStart = {x:e.touches[0].clientX, y:e.touches[0].clientY};
+    }
+  }, {passive:true});
+  canvas.addEventListener("touchend", function(e){
+    if(!touchStart) return;
+    var t = e.changedTouches[0];
+    var dx = t.clientX - touchStart.x;
+    var dy = t.clientY - touchStart.y;
+    touchStart = null;
+    if(Math.abs(dx) < 24 && Math.abs(dy) < 24){
+      // tap = flood with the currently selected color (default first)
+      flood(0);
+      return;
+    }
+    if(Math.abs(dy) > Math.abs(dx)){
+      var dir = dy < 0 ? 1 : -1;
+      selColor = (selColor + dir + N_COLORS) % N_COLORS;
+      markSel();
+      flood(selColor);
+    } else {
+      var dir2 = dx < 0 ? 1 : -1;
+      selColor = (selColor + dir2 + N_COLORS) % N_COLORS;
+      markSel();
+      flood(selColor);
+    }
+  }, {passive:true});
+
   window.addEventListener("resize", fitCanvas);
 
   buildSwatches();
   selectSize(12);
+
+  // Start screen (shown until first Play)
+  function showStart(){
+    ovTitle.textContent = "COLOR FLOOD";
+    ovTitle.className = "big";
+    ovInfo.innerHTML = "Flood the whole board from the top-left corner by picking colors. Win before you run out of moves.";
+    ovBest.style.display = "none";
+    ovBtn.textContent = "PLAY";
+    overlay.classList.add("show");
+  }
+  showStart();
+  // test hook: lets headless tests verify the start screen is visible
+  window.__cfOverlayVisible = function(){ return overlay.classList.contains("show"); };
 })();
 </script>
 </body>
