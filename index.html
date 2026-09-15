@@ -351,8 +351,6 @@
 
   function draw(){
     var W = size * cell;
-    canvas.width = W;
-    canvas.height = W;
     ctx.imageSmoothingEnabled = false;
     for(var y=0;y<size;y++){
       for(var x=0;x<size;x++){
@@ -386,10 +384,17 @@
 
   function fitCanvas(){
     // letterbox: fit the board into the window (900x700 design area), DPR-aware
+    var dpr = window.devicePixelRatio || 1;
     var availW = Math.min(window.innerWidth - 48, 700);
     var availH = Math.max(200, window.innerHeight - 340);
     var max = Math.min(availW, availH, 560);
     cell = Math.max(12, Math.floor(max / size));
+    var W = size * cell;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(W * dpr);
+    canvas.style.width = W + "px";
+    canvas.style.height = W + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     draw();
   }
 
@@ -493,8 +498,8 @@
     var dy = t.clientY - touchStart.y;
     touchStart = null;
     if(Math.abs(dx) < 24 && Math.abs(dy) < 24){
-      // tap = flood with the currently selected color (default first)
-      flood(0);
+      // tap = flood with the currently selected color
+      flood(selColor);
       return;
     }
     if(Math.abs(dy) > Math.abs(dx)){
